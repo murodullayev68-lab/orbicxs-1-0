@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>OrbicXs 1.0</title>
+  <meta name="description" content="Telegram 1.0 kabi – webda, real-time, SMS kirish" />
+  <link rel="manifest" href="manifest.json" />
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;500&display=swap');
+    * { margin:0; padding:0; box-sizing:border-box; font-family: 'Roboto', sans-serif; }
+    body { background: linear-gradient(135deg, #1e3c72, #2a5298); display: flex; justify-content: center; align-items: center; min-height: 100vh; color: white; }
+    .app { width: 100%; max-width: 400px; background: rgba(255,255,255,0.1); backdrop-filter: blur(10px); border-radius: 16px; overflow: hidden; box-shadow: 0 8px 32px rgba(0,0,0,0.3); }
+    .header { background: #0088cc; padding: 18px; text-align: center; font-weight: 500; font-size: 20px; }
+    .content { padding: 24px; }
+    input, button, select { width: 100%; padding: 14px; margin: 10px 0; border-radius: 12px; border: none; font-size: 16px; }
+    input, select { background: rgba(255,255,255,0.2); color: white; }
+    input::placeholder, select { color: #ccc; }
+    button { background: #00bfff; color: white; font-weight: 500; cursor: pointer; transition: 0.3s; }
+    button:hover { background: #0099cc; }
+    .hidden { display: none; }
+    .chat { height: 380px; overflow-y: auto; padding: 12px; background: rgba(0,0,0,0.1); border-radius: 12px; margin: 12px 0; }
+    .msg { max-width: 78%; padding: 10px 16px; border-radius: 20px; margin: 8px 0; word-wrap: break-word; position: relative; }
+    .sent { background: #00bfff; color: white; margin-left: auto; border-bottom-right-radius: 4px; }
+    .received { background: rgba(255,255,255,0.2); color: white; margin-right: auto; border-bottom-left-radius: 4px; }
+    .input-group { display: flex; gap: 8px; align-items: center; }
+    .input-group input { flex: 1; }
+    .input-group button { width: 50px; height: 50px; border-radius: 50%; padding: 0; font-size: 20px; }
+    .file-btn { background: #444; color: white; width: 50px; height: 50px; border-radius: 50%; text-align: center; line-height: 50px; cursor: pointer; }
+    .online { color: #0f0; font-size: 12px; }
+    img { max-width: 100%; border-radius: 12px; margin-top: 8px; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <!-- SMS KIRISH -->
+    <div id="authStep">
+      <div class="header">OrbicXs 1.0</div>
+      <div class="content">
+        <p>Telefon raqamingizni kiriting</p>
+        <input id="phone" type="tel" placeholder="+998901234567" />
+        <button onclick="sendCode()">KOD YUBORISH</button>
+        <p id="status" style="margin-top:10px; font-size:14px; color:#ff6b6b;"></p>
+      </div>
+    </div>
+
+    <!-- KOD TASDIQLASH -->
+    <div id="codeStep" class="hidden">
+      <div class="header">SMS Kod</div>
+      <div class="content">
+        <input id="code" type="text" placeholder="123456" maxlength="6" />
+        <button onclick="verifyCode()">TASDIQLASH</button>
+      </div>
+    </div>
+
+    <!-- ASOSIY CHAT -->
+    <div id="chatStep" class="hidden">
+      <div class="header">
+        <select id="chatType" onchange="switchChat()">
+          <option value="private">Shaxsiy</option>
+          <option value="group">Guruh</option>
+        </select>
+        <span style="float:right;" id="onlineStatus">Online</span>
+      </div>
+      <div class="chat" id="messages"></div>
+      <div class="input-group">
+        <div class="file-btn" onclick="document.getElementById('fileInput').click()">Attach</div>
+        <input type="file" id="fileInput" accept="image/*" style="display:none" onchange="uploadImage(event)" />
+        <input id="msgInput" placeholder="Xabar yozing..." onkeypress="if(event.key==='Enter') sendMsg()" />
+        <button onclick="sendMsg()">Send</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // SIZNING SUPABASE MA'LUMOTLARI (100% TO'G'RI!)
+    const SUPABASE_URL = 'https://zidcmnlzkkxpqppsewez.supabase.co';
+    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InppZGNtbmx6a2t4cHFwcHNld2V6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjI2MjUzOTEsImV4cCI6MjA3ODIwMTM5MX0.efCuHW2BhkigAqkkwAqUrysw9sW1UuN1Yseuthp_D3Q';
+    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    let userPhone = '';
+    let currentChat = 'private';
+
+    // KOD YUBORISH
+    window.sendCode = async () => {
+      const phone = document.getElementById('phone').value.trim();
+      if (!phone.startsWith('+')) return status("Raqam + bilan boshlanishi kerak");
+      
+      const { error } = await supabase.auth.signInWithOtp({ phone });
+      if (error) return status(error.message);
+      userPhone = phone;
+      document.getElementById('authStep').classList.add('hidden');
+      document.getElementById('codeStep').classList.remove('hidden');
+      status("SMS yuborildi!");
+    };
+
+    // KOD TASDIQLASH
+    window.verifyCode = async () => {
+      const code = document.getElementById('code').value.trim();
+      const { data, error } = await supabase.auth.verifyOtp({ phone: userPhone, token: code, type: 'sms' });
+      if (error) return alert(error.message);
+      
+      document.getElementById('codeStep').classList.add('hidden');
+      document.getElementById('chatStep').classList.remove('hidden');
+      loadMessages();
+    };
+
+    // CHAT TURI O'ZGARTIRISH
+    window.switchChat = () => {
+      currentChat = document.getElementById('chatType').value;
+      document.getElementById('messages').innerHTML = '';
+      loadMessages();
+    };
+
+    // XABAR YUBORISH
+    window.sendMsg = async () => {
+      const msg = document.getElementById('msgInput').value.trim();
+      if (!msg) return;
+      
+      await supabase.from('messages').insert({
+        phone: userPhone,
+        text: msg,
+        type: 'sent',
+        chat_type: currentChat
+      });
+      document.getElementById('msgInput').value = '';
+    };
+
+    // RASM YUKLASH
+    window.uploadImage = async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      
+      const fileName = `${Date.now()}_${file.name}`;
+      const { data, error } = await supabase.storage.from('images').upload(`public/${fileName}`, file);
+      if (error) return alert("Rasm yuklashda xato: " + error.message);
+      
+      const url = `${SUPABASE_URL}/storage/v1/object/public/images/public/${fileName}`;
+      await supabase.from('messages').insert({
+        phone: userPhone,
+        text: url,
+        type: 'image',
+        chat_type: currentChat
+      });
+    };
+
+    // XABARLAR YUKLASH
+    function loadMessages() {
+      supabase
+        .channel(`messages:${currentChat}`)
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `chat_type=eq.${currentChat}` }, payload => {
+          addMessage(payload.new);
+        })
+        .subscribe();
+
+      supabase.from('messages')
+        .select()
+        .eq('chat_type', currentChat)
+        .order('created_at', { ascending: true })
+        .then(({ data }) => data.forEach(addMessage));
+    }
+
+    // XABAR QO'SHISH
+    function addMessage(m) {
+      const isSent = m.phone === userPhone;
+      const div = document.createElement('div');
+      div.className = `msg ${isSent ? 'sent' : 'received'}`;
+      
+      if (m.type === 'image') {
+        const img = document.createElement('img');
+        img.src = m.text;
+        img.onclick = () => window.open(m.text);
+        div.appendChild(img);
+      } else {
+        div.innerText = m.text;
+      }
+      
+      document.getElementById('messages').appendChild(div);
+      div.scrollIntoView({ behavior: 'smooth' });
+    }
+
+    function status(text) { document.getElementById('status').innerText = text; }
+  </script>
+</body>
+</html>
