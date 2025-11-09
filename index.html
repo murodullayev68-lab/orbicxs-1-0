@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>OrbicXs 1.0</title>
-  <meta name="description" content="Telegram 1.0 kabi – webda, real-time, EMAIL kirish" />
+  <meta name="description" content="Telegram kabi – real-time, email kirish, username, qidiruv" />
   <link rel="manifest" href="manifest.json" />
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
@@ -32,6 +32,9 @@
     img { max-width: 100%; border-radius: 12px; margin-top: 8px; cursor: pointer; }
     .status { margin-top:10px; font-size:14px; color:#00ff00; }
     .error { color:#ff6b6b; }
+    .search { margin: 10px 0; }
+    .user-item { padding: 12px; background: rgba(255,255,255,0.1); border-radius: 12px; margin: 8px 0; cursor: pointer; }
+    .user-item:hover { background: rgba(255,255,255,0.2); }
   </style>
 </head>
 <body>
@@ -47,14 +50,24 @@
       </div>
     </div>
 
-    <!-- ASOSIY CHAT -->
-    <div id="chatStep" class="hidden">
+    <!-- USERNAME TANLASH -->
+    <div id="usernameStep" class="hidden">
+      <div class="header">Username tanlang</div>
+      <div class="content">
+        <input id="username" type="text" placeholder="misol: @ali_2005" />
+        <button onclick="saveUsername()">SAQLASH</button>
+      </div>
+    </div>
+
+    <!-- QIDIRUV + CHAT -->
+    <div id="mainStep" class="hidden">
       <div class="header">
-        <select id="chatType" onchange="switchChat()">
-          <option value="private">Shaxsiy</option>
-          <option value="group">Guruh</option>
-        </select>
-        <span style="float:right;" id="onlineStatus">Online</span>
+        <span id="currentUser"></span>
+        <span style="float:right; cursor:pointer;" onclick="logout()">Chiqish</span>
+      </div>
+      <div class="content">
+        <input id="searchUser" type="text" placeholder="Username qidiring..." class="search" oninput="searchUsers()" />
+        <div id="searchResults"></div>
       </div>
       <div class="chat" id="messages"></div>
       <div class="input-group">
@@ -67,113 +80,138 @@
   </div>
 
   <script>
-    // SIZNING SUPABASE MA'LUMOTLARI
     const SUPABASE_URL = 'https://zidcmnlzkkxpqppsewez.supabase.co';
     const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InppZGNtbmx6a2t4cHFwcHNld2V6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjI2MjUzOTEsImV4cCI6MjA3ODIwMTM5MX0.efCuHW2BhkigAqkkwAqUrysw9sW1UuN1Yseuthp_D3Q';
     const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-    let userEmail = '';
-    let currentChat = 'private';
+    let user = null;
+    let currentChatWith = null;
 
-    // MAGIC LINK YUBORISH
+    // HAVOLA YUBORISH
     window.sendMagicLink = async () => {
       const email = document.getElementById('email').value.trim();
       if (!email) return status("Email kiriting!", "error");
 
       const { error } = await supabase.auth.signInWithOtp({
         email,
-        options: { emailRedirectTo: window.location.href }
+        options: { emailRedirectTo: 'https://orbicxs-1-0.vercel.app' }
       });
 
       if (error) return status(error.message, "error");
-      userEmail = email;
       status("Havola yuborildi! Emailni tekshiring va bosing.");
     };
 
-    // HAVOLA BOSILGANDA – AVTO KIRISH
+    // AVTO KIRISH
     (async () => {
-      const { data: { session }, error } = await supabase.auth.getSession();
+      const { data: { session } } = await supabase.auth.getSession();
       if (session) {
-        userEmail = session.user.email;
-        document.getElementById('authStep').classList.add('hidden');
-        document.getElementById('chatStep').classList.remove('hidden');
-        loadMessages();
+        user = session.user;
+        const { data } = await supabase.from('profiles').select('username').eq('id', user.id).single();
+        if (data?.username) {
+          showMain(data.username);
+        } else {
+          document.getElementById('authStep').classList.add('hidden');
+          document.getElementById('usernameStep').classList.remove('hidden');
+        }
       }
     })();
 
-    // CHAT TURI O'ZGARTIRISH
-    window.switchChat = () => {
-      currentChat = document.getElementById('chatType').value;
+    // USERNAME SAQLASH
+    window.saveUsername = async () => {
+      const username = document.getElementById('username').value.trim().toLowerCase();
+      if (!username || !username.startsWith('@')) return alert("Username @ bilan boshlanishi kerak!");
+
+      const { data, error } = await supabase.from('profiles').upsert({
+        id: user.id,
+        username,
+        email: user.email,
+        updated_at: new Date()
+      });
+
+      if (error) return alert("Bu username band!");
+      showMain(username);
+    };
+
+    // ASOSIY EKRAN
+    function showMain(username) {
+      document.getElementById('usernameStep').classList.add('hidden');
+      document.getElementById('mainStep').classList.remove('hidden');
+      document.getElementById('currentUser').innerText = username;
+      loadMessages();
+    }
+
+    // QIDIRUV
+    window.searchUsers = async () => {
+      const query = document.getElementById('searchUser').value.trim().toLowerCase();
+      if (!query) {
+        document.getElementById('searchResults').innerHTML = '';
+        return;
+      }
+
+      const { data } = await supabase.from('profiles').select('username').ilike('username', `%${query}%`).neq('id', user.id);
+      const results = document.getElementById('searchResults');
+      results.innerHTML = '';
+      data.forEach(u => {
+        const div = document.createElement('div');
+        div.className = 'user-item';
+        div.innerText = u.username;
+        div.onclick = () => startChat(u.username);
+        results.appendChild(div);
+      });
+    };
+
+    // CHAT BOSHLASH
+    function startChat(username) {
+      currentChatWith = username;
       document.getElementById('messages').innerHTML = '';
       loadMessages();
-    };
+    }
 
     // XABAR YUBORISH
     window.sendMsg = async () => {
       const msg = document.getElementById('msgInput').value.trim();
-      if (!msg) return;
-      
+      if (!msg || !currentChatWith) return;
+
+      const chatId = [user.user_metadata.username || user.email, currentChatWith].sort().join('_');
       await supabase.from('messages').insert({
-        email: userEmail,
+        chat_id: chatId,
+        sender: user.user_metadata.username || user.email,
         text: msg,
-        type: 'sent',
-        chat_type: currentChat
+        type: 'text'
       });
       document.getElementById('msgInput').value = '';
     };
 
-    // RASM YUKLASH
-    window.uploadImage = async (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
-      
-      const fileName = `${Date.now()}_${file.name}`;
-      const { data, error } = await supabase.storage.from('images').upload(`public/${fileName}`, file);
-      if (error) return alert("Rasm yuklashda xato: " + error.message);
-      
-      const url = `${SUPABASE_URL}/storage/v1/object/public/images/public/${fileName}`;
-      await supabase.from('messages').insert({
-        email: userEmail,
-        text: url,
-        type: 'image',
-        chat_type: currentChat
-      });
-    };
-
     // XABARLAR YUKLASH
     function loadMessages() {
+      if (!currentChatWith) return;
+      const chatId = [user.user_metadata.username || user.email, currentChatWith].sort().join('_');
+
       supabase
-        .channel(`messages:${currentChat}`)
-        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `chat_type=eq.${currentChat}` }, payload => {
+        .channel(`chat:${chatId}`)
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `chat_id=eq.${chatId}` }, payload => {
           addMessage(payload.new);
         })
         .subscribe();
 
       supabase.from('messages')
         .select()
-        .eq('chat_type', currentChat)
+        .eq('chat_id', chatId)
         .order('created_at', { ascending: true })
         .then(({ data }) => data.forEach(addMessage));
     }
 
     // XABAR QO'SHISH
     function addMessage(m) {
-      const isSent = m.email === userEmail;
+      const isSent = m.sender === (user.user_metadata.username || user.email);
       const div = document.createElement('div');
       div.className = `msg ${isSent ? 'sent' : 'received'}`;
-      
-      if (m.type === 'image') {
-        const img = document.createElement('img');
-        img.src = m.text;
-        img.onclick = () => window.open(m.text);
-        div.appendChild(img);
-      } else {
-        div.innerText = m.text;
-      }
-      
+      div.innerText = m.text;
       document.getElementById('messages').appendChild(div);
       div.scrollIntoView({ behavior: 'smooth' });
     }
+
+    window.logout = () => supabase.auth.signOut().then(() => location.reload());
 
     function status(text, type = "status") {
       const el = document.getElementById('status');
