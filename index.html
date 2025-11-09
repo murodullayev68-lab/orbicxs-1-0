@@ -101,6 +101,7 @@
     let user = null;
     let currentChatWith = null;
     let myUsername = '';
+    let chatChannel = null;  // YANGI: Global channel
 
     // HAVOLA YUBORISH
     window.sendMagicLink = async () => {
@@ -188,14 +189,39 @@
       });
     };
 
-    // CHAT OCHISH
+    // CHAT OCHISH – YANGI REAL-TIME!
     function openChat(username) {
       currentChatWith = username;
       document.getElementById('usersStep').classList.add('hidden');
       document.getElementById('chatStep').classList.remove('hidden');
       document.getElementById('chatWithName').innerText = username;
       document.getElementById('messages').innerHTML = '';
+
+      // Eski kanalni o'chirish
+      if (chatChannel) {
+        supabase.removeChannel(chatChannel);
+      }
+
       loadMessages();
+      subscribeToChat();  // YANGI: Real-time ulash!
+    }
+
+    // YANGI: REAL-TIME ULASH
+    function subscribeToChat() {
+      if (!currentChatWith) return;
+      const chatId = [myUsername, currentChatWith].sort().join('_');
+
+      chatChannel = supabase
+        .channel(`chat:${chatId}`)
+        .on('postgres_changes', {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'messages',
+          filter: `chat_id=eq.${chatId}`
+        }, payload => {
+          addMessage(payload.new);  // YANGI XABAR – AVTO KELADI!
+        })
+        .subscribe();
     }
 
     // ORQAGA
@@ -203,6 +229,12 @@
       document.getElementById('chatStep').classList.add('hidden');
       document.getElementById('usersStep').classList.remove('hidden');
       currentChatWith = null;
+
+      // Kanalni tozalash
+      if (chatChannel) {
+        supabase.removeChannel(chatChannel);
+        chatChannel = null;
+      }
     };
 
     // XABAR YUBORISH
@@ -224,15 +256,6 @@
       if (!currentChatWith) return;
       const chatId = [myUsername, currentChatWith].sort().join('_');
 
-      // Real-time
-      supabase
-        .channel(`chat:${chatId}`)
-        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `chat_id=eq.${chatId}` }, payload => {
-          addMessage(payload.new);
-        })
-        .subscribe();
-
-      // Eski xabarlar
       supabase.from('messages')
         .select()
         .eq('chat_id', chatId)
