@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>OrbicXs 1.0</title>
-  <meta name="description" content="Telegram 1.0 kabi – webda, real-time, SMS kirish" />
+  <meta name="description" content="Telegram 1.0 kabi – webda, real-time, EMAIL kirish" />
   <link rel="manifest" href="manifest.json" />
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
@@ -30,27 +30,20 @@
     .file-btn { background: #444; color: white; width: 50px; height: 50px; border-radius: 50%; text-align: center; line-height: 50px; cursor: pointer; }
     .online { color: #0f0; font-size: 12px; }
     img { max-width: 100%; border-radius: 12px; margin-top: 8px; cursor: pointer; }
+    .status { margin-top:10px; font-size:14px; color:#00ff00; }
+    .error { color:#ff6b6b; }
   </style>
 </head>
 <body>
   <div class="app">
-    <!-- SMS KIRISH -->
+    <!-- EMAIL KIRISH -->
     <div id="authStep">
       <div class="header">OrbicXs 1.0</div>
       <div class="content">
-        <p>Telefon raqamingizni kiriting</p>
-        <input id="phone" type="tel" placeholder="+998901234567" />
-        <button onclick="sendCode()">KOD YUBORISH</button>
-        <p id="status" style="margin-top:10px; font-size:14px; color:#ff6b6b;"></p>
-      </div>
-    </div>
-
-    <!-- KOD TASDIQLASH -->
-    <div id="codeStep" class="hidden">
-      <div class="header">SMS Kod</div>
-      <div class="content">
-        <input id="code" type="text" placeholder="123456" maxlength="6" />
-        <button onclick="verifyCode()">TASDIQLASH</button>
+        <p>Email orqali kirish</p>
+        <input id="email" type="email" placeholder="email@gmail.com" />
+        <button onclick="sendMagicLink()">HAVOLA YUBORISH</button>
+        <p id="status" class="status"></p>
       </div>
     </div>
 
@@ -74,37 +67,39 @@
   </div>
 
   <script>
-    // SIZNING SUPABASE MA'LUMOTLARI (100% TO'G'RI!)
+    // SIZNING SUPABASE MA'LUMOTLARI
     const SUPABASE_URL = 'https://zidcmnlzkkxpqppsewez.supabase.co';
     const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InppZGNtbmx6a2t4cHFwcHNld2V6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjI2MjUzOTEsImV4cCI6MjA3ODIwMTM5MX0.efCuHW2BhkigAqkkwAqUrysw9sW1UuN1Yseuthp_D3Q';
     const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-    let userPhone = '';
+    let userEmail = '';
     let currentChat = 'private';
 
-    // KOD YUBORISH
-    window.sendCode = async () => {
-      const phone = document.getElementById('phone').value.trim();
-      if (!phone.startsWith('+')) return status("Raqam + bilan boshlanishi kerak");
-      
-      const { error } = await supabase.auth.signInWithOtp({ phone });
-      if (error) return status(error.message);
-      userPhone = phone;
-      document.getElementById('authStep').classList.add('hidden');
-      document.getElementById('codeStep').classList.remove('hidden');
-      status("SMS yuborildi!");
+    // MAGIC LINK YUBORISH
+    window.sendMagicLink = async () => {
+      const email = document.getElementById('email').value.trim();
+      if (!email) return status("Email kiriting!", "error");
+
+      const { error } = await supabase.auth.signInWithOtp({
+        email,
+        options: { emailRedirectTo: window.location.href }
+      });
+
+      if (error) return status(error.message, "error");
+      userEmail = email;
+      status("Havola yuborildi! Emailni tekshiring va bosing.");
     };
 
-    // KOD TASDIQLASH
-    window.verifyCode = async () => {
-      const code = document.getElementById('code').value.trim();
-      const { data, error } = await supabase.auth.verifyOtp({ phone: userPhone, token: code, type: 'sms' });
-      if (error) return alert(error.message);
-      
-      document.getElementById('codeStep').classList.add('hidden');
-      document.getElementById('chatStep').classList.remove('hidden');
-      loadMessages();
-    };
+    // HAVOLA BOSILGANDA – AVTO KIRISH
+    (async () => {
+      const { data: { session }, error } = await supabase.auth.getSession();
+      if (session) {
+        userEmail = session.user.email;
+        document.getElementById('authStep').classList.add('hidden');
+        document.getElementById('chatStep').classList.remove('hidden');
+        loadMessages();
+      }
+    })();
 
     // CHAT TURI O'ZGARTIRISH
     window.switchChat = () => {
@@ -119,7 +114,7 @@
       if (!msg) return;
       
       await supabase.from('messages').insert({
-        phone: userPhone,
+        email: userEmail,
         text: msg,
         type: 'sent',
         chat_type: currentChat
@@ -138,7 +133,7 @@
       
       const url = `${SUPABASE_URL}/storage/v1/object/public/images/public/${fileName}`;
       await supabase.from('messages').insert({
-        phone: userPhone,
+        email: userEmail,
         text: url,
         type: 'image',
         chat_type: currentChat
@@ -163,7 +158,7 @@
 
     // XABAR QO'SHISH
     function addMessage(m) {
-      const isSent = m.phone === userPhone;
+      const isSent = m.email === userEmail;
       const div = document.createElement('div');
       div.className = `msg ${isSent ? 'sent' : 'received'}`;
       
@@ -180,7 +175,11 @@
       div.scrollIntoView({ behavior: 'smooth' });
     }
 
-    function status(text) { document.getElementById('status').innerText = text; }
+    function status(text, type = "status") {
+      const el = document.getElementById('status');
+      el.innerText = text;
+      el.className = type;
+    }
   </script>
 </body>
 </html>
